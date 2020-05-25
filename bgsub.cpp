@@ -23,7 +23,7 @@ int keyboard;
 
 //function declarations
 void help();
-void processVideo(int argc, char* argv[]);
+void processVideo(char* filename);
 static void refineSegments(const Mat& img, Mat& mask, Mat& dst);
 
 void help()
@@ -41,11 +41,11 @@ void help()
 
 int main(int argc, char* argv[])
 {
-  //if(argc != 2)
-  //{
-  //  help();
-  //  return EXIT_FAILURE;
-  //}
+  if(argc != 2)
+  {
+    help();
+    return EXIT_FAILURE;
+  }
 
   //create GUI windows
   namedWindow("Frame");
@@ -55,30 +55,22 @@ int main(int argc, char* argv[])
   pMOG2 = createBackgroundSubtractorMOG2();
   //pMOG2->setVarThreshold(10);
 
-  processVideo(argc, argv);
+  processVideo(argv[1]);
 
   destroyAllWindows();
 
   return EXIT_SUCCESS;
 }
 
-void processVideo(int argc, char* argv[])
+void processVideo(char* filename)
 {
   //create the capture object
-  VideoCapture cap;
-  if (argc != 2) {
-    cap.open(0); //open video camera
-    cap.set(CAP_PROP_FRAME_WIDTH, 500);
-    cap.set(CAP_PROP_FRAME_HEIGHT, 600);
-    sleep(3);
-  } else {
-    cap.open(argv[1]); //open provided file
-  }
+  VideoCapture cap(filename);
   
   //VideoCapture capture(videoFilename);
   if(!cap.isOpened())
   {
-    cerr << "Unable to open video file: " << argv[1] << endl;
+    cerr << "Unable to open video file: " << filename << endl;
     exit(EXIT_FAILURE);
   }
   //read input data. ESC or 'q' for quitting
@@ -121,61 +113,56 @@ void processVideo(int argc, char* argv[])
   cap.release();
 }
 
-static void refineSegments(const Mat& img, Mat& mask, Mat& dst)
-{
-    int niters = 5;
-    vector<vector<Point> > contours;
-    vector<Vec4i> hierarchy;
-    Mat temp;
+static void refineSegments(const Mat& img, Mat& mask, Mat& dst) {
+  int niters = 5;
+  vector<vector<Point> > contours;
+  vector<Vec4i> hierarchy;
+  Mat temp;
 
-    dilate(mask, temp, Mat(), Point(-1,-1), niters);
-    erode(temp, temp, Mat(), Point(-1,-1), niters*2);
-    dilate(temp, temp, Mat(), Point(-1,-1), niters);
+  dilate(mask, temp, Mat(), Point(-1,-1), niters);
+  erode(temp, temp, Mat(), Point(-1,-1), niters*2);
+  dilate(temp, temp, Mat(), Point(-1,-1), niters);
 
-    findContours(temp, contours, hierarchy, RETR_CCOMP, CHAIN_APPROX_SIMPLE);
-    dst = Mat::zeros(img.size(), CV_8UC3);
-    if(contours.size() == 0)
-        return;
+  findContours(temp, contours, hierarchy, RETR_CCOMP, CHAIN_APPROX_SIMPLE);
+  dst = Mat::zeros(img.size(), CV_8UC3);
+  if(contours.size() == 0)
+      return;
 
-    for(int i = 0; i < contours.size(); i++) {
-      if(contourArea(contours[i]) < 600) {
-        continue;
-      }
-
-      // get a bounding box so we can work out where the contour is and ignore it
-      // if its where the camera time display is. Ideally we would remove the 
-      // camera time display and instead show the time with the nvidia osd element.
-      Rect bbox = boundingRect(contours[i]);
-      rectangle(dst, bbox.tl(), bbox.br(), Scalar(0,255,0), 2);
-      cout << "Bounding box coords - tl: " << bbox.tl() << ", br: " << bbox.br() << endl;
-
-      rectangle(dst, Point(0, 0), Point(350, 150), Scalar(255, 0, 0), FILLED);
-
-      // ignore the are where hikivions show the date/time
-      if (bbox.br().x > 300 && bbox.br().y > 150) {
-        putText(dst, "Motion Detected", Point(10, 20), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(0,0,255),2);
-      }
+  for(int i = 0; i < contours.size(); i++) {
+    if(contourArea(contours[i]) < 600) {
+      continue;
     }
 
-#if 0
-    // iterate through all the top-level contours,
-    // draw each connected component with its own random color
-    int idx = 0, largestComp = 0;
-    double maxArea = 0;
-    for( ; idx >= 0; idx = hierarchy[idx][0] )
-    {
-        const vector<Point>& c = contours[idx];
-        double area = fabs(contourArea(Mat(c)));
-        if (area < 500) {
-          continue;
-        }
-        if( area > maxArea )
-        {
-            maxArea = area;
-            largestComp = idx;
-        }
+    // get a bounding box so we can work out where the contour is and ignore it
+    // if its where the camera time display is.
+    Rect bbox = boundingRect(contours[i]);
+    rectangle(dst, bbox.tl(), bbox.br(), Scalar(0,255,0), 2);
+    cout << "Bounding box coords - tl: " << bbox.tl() << ", br: " << bbox.br() << endl;
+
+    //rectangle(dst, Point(0, 0), Point(350, 150), Scalar(255, 0, 0), FILLED);
+
+    // ignore the area where hikvision cameras show the date/time
+    if (bbox.br().x > 300 && bbox.br().y > 150) {
+      putText(dst, "Motion Detected", Point(10, 20), FONT_HERSHEY_SIMPLEX, 0.75, Scalar(0,0,255),2);
     }
-    Scalar color( 0, 0, 255 );
-    drawContours( dst, contours, largestComp, color, FILLED, LINE_8, hierarchy );
-#endif
+  }
+
+  // iterate through all the top-level contours,
+  // draw each connected component with its own random color
+  int idx = 0, largestComp = 0;
+  double maxArea = 0;
+  for (; idx >= 0; idx = hierarchy[idx][0]) {
+    const vector<Point>& c = contours[idx];
+    double area = fabs(contourArea(Mat(c)));
+    if (area < 500) {
+      continue;
+    }
+    if(area > maxArea) {
+        maxArea = area;
+        largestComp = idx;
+    }
+  }
+
+  Scalar color( 0, 0, 255 );
+  drawContours(dst, contours, largestComp, color, FILLED, LINE_8, hierarchy);
 }
